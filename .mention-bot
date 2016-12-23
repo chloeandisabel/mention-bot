@@ -1,0 +1,5 @@
+{
+  "fileBlacklist": [
+    "db/default/data_migrations.yml"
+  ]
+}
