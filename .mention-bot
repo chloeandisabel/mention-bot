@@ -1,5 +1,6 @@
 {
   "fileBlacklist": [
-    "db/default/data_migrations.yml"
+    "db/default/data_migrations.yml",
+    "db/schema.rb"
   ]
 }
