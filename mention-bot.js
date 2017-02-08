@@ -73,22 +73,41 @@ function startsWith(str, start) {
 
 function parseDiffFile(lines: Array<string>): FileInfo {
   var deletedLines = [];
+  var fromFile = "";
 
-  // diff --git a/path b/path
+  // diff --git "a/path" "b/path" or rename to path/file or rename from path/file
   var line = lines.pop();
-  if (!line.match(/^diff --git a\//)) {
-    throw new Error('Invalid line, should start with `diff --git a/`, instead got \n' + line + '\n');
+  if (line.match(/^rename to "?/)) {
+    // rename from path/file
+    line = lines.pop();
   }
-  var fromFile = line.replace(/^diff --git a\/(.+) b\/.+/g, '$1');
+
+  if (line.match(/^diff --git "?a\//)) {
+    fromFile = line.replace(/^diff --git "?a\/(.+)"? "?b\/.+"?/g, '$1');
+  } else if (line.match(/^rename from "?/)) {
+    fromFile = line.replace(/^rename from "?(.+)"?/g, '$1');
+  } else {
+    throw new Error('Invalid line, should start with something like `diff --git a/`, instead got \n' + line + '\n');
+  }
 
   // index sha..sha mode
   line = lines.pop();
   if (startsWith(line, 'deleted file') ||
-      startsWith(line, 'new file')) {
+      startsWith(line, 'new file') ||
+      startsWith(line, 'rename')) {
     line = lines.pop();
   }
 
-  line = lines.pop();
+  if (startsWith(line, 'index ')) {
+    line = lines.pop();
+  } else if(startsWith(line, 'similarity index')) {
+    line = lines.pop();
+    while (startsWith(line, 'rename')) {
+      line = lines.pop();
+    }
+    // index sha..sha mode
+    line = lines.pop();
+  }
   if (!line) {
     // If the diff ends in an empty file with 0 additions or deletions, line will be null
   } else if (startsWith(line, 'diff --git')) {
@@ -186,7 +205,7 @@ function parseBlame(blame: string): Array<string> {
   // The way the document is structured is that commits and lines are
   // interleaved. So every time we see a commit we grab the author's name
   // and every time we see a line we log the last seen author.
-  var re = /(rel="(?:author|contributor)">([^<]+)<\/a> authored|<tr class="blame-line">)/g;
+  var re = /(<img alt="@([^"]+)" class="avatar blame-commit-avatar"|<tr class="blame-line")/g;
 
   var currentAuthor = 'none';
   var lines = [];
@@ -270,7 +289,7 @@ async function getDiffForPullRequest(
 ): Promise<string> {
   return new Promise(function(resolve, reject) {
     github.pullRequests.get({
-      user: owner,
+      owner: owner,
       repo: repo,
       number: id,
       headers: {Accept: 'application/vnd.github.diff'}
@@ -300,7 +319,7 @@ async function getMatchingOwners(
     user.files.forEach(function(pattern) {
       if (!userHasChangedFile) {
         userHasChangedFile = files.find(function(file) {
-          return minimatch(file.path, pattern);
+          return minimatch(file.path, pattern, { dot: true });
         });
       }
     });
@@ -328,7 +347,7 @@ async function filterOwnTeam(
   })) {
     return owners;
   }
-  
+
   // GitHub does not provide an API to look up a team by name.
   // Instead, get all teams, then filter against those matching
   // our teams list who want to be excluded from their own PR's.
@@ -419,11 +438,11 @@ async function getTeams(
 }
 
 async function getOwnerOrgs(
-  owner: string,
+  username: string,
   github: Object
 ): Promise<Array<string>> {
   return new Promise(function(resolve, reject) {
-    github.orgs.getForUser({ user: owner }, function(err, result) {
+    github.orgs.getForUser({ username: username }, function(err, result) {
       if (err) {
         reject(err);
       } else {
@@ -494,7 +513,7 @@ async function getTeamMembership(
   return new Promise(function(resolve, reject) {
     github.orgs.getTeamMembership({
       id: teamData.id,
-      user: creator
+      owner: creator
     }, function(err, data) {
       if (err) {
         if (err.code === 404 &&
